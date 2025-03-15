@@ -1,0 +1,337 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+// Definição de estruturas de dados
+typedef struct {
+    int id;
+    char descricao[50];
+    int quantidade;
+    float preco;
+    char validade[11]; // formato: "dd/mm/yyyy"
+    char unidade_medida[10]; // "kg" ou "unidade"
+} Produto;
+
+typedef struct {
+    int id;
+    char nome[30];
+    char usuario[20];
+    char senha[20];
+    char funcao[20]; // "adm", "estoque", "vendas"
+} Usuario;
+
+typedef struct {
+    int id;
+    char nome[50];
+    char contato[50];
+    char produtos_oferecidos[100];
+    char historico_compras[200];
+} Fornecedor;
+
+Produto estoque[100];
+Fornecedor fornecedores[50];
+Usuario usuarios[10];
+int contador_produtos = 0;
+int contador_fornecedores = 0;
+int contador_usuarios = 0;
+float total_vendas = 0;
+int vendas_realizadas = 0;
+
+// Usuário atualmente logado
+Usuario usuario_logado;
+
+// Função de login
+int login() {
+    char usuario[20], senha[20];
+    printf("Acesso ERP Frutelite\n\n");
+    printf("Usuario: ");
+    scanf("%s", usuario);
+    printf("Senha: ");
+    scanf("%s", senha);
+
+    for (int i = 0; i < contador_usuarios; i++) {
+        if (strcmp(usuarios[i].usuario, usuario) == 0 && strcmp(usuarios[i].senha, senha) == 0) {
+            usuario_logado = usuarios[i];
+            printf("Login bem-sucedido! Bem-vindo, %s.\n", usuario_logado.nome);
+            return 1;
+        }
+    }
+    printf("Usuario ou senha incorretos.\n");
+    return 0;
+}
+
+// Função para verificar permissões de acesso
+int verificar_permissao(const char* modulo) {
+    if (strcmp(usuario_logado.funcao, "adm") == 0) return 1;
+    if (strcmp(modulo, "estoque") == 0 && strcmp(usuario_logado.funcao, "estoque") == 0) return 1;
+    if (strcmp(modulo, "vendas") == 0 && strcmp(usuario_logado.funcao, "vendas") == 0) return 1;
+    return 0;
+}
+
+// Funções Auxiliares
+int comparar_datas(char validade[]) {
+    struct tm data_atual = {0}, data_validade = {0};
+    time_t t = time(NULL);
+    struct tm *data_local = localtime(&t);
+
+    data_atual = *data_local;
+
+    sscanf(validade, "%d/%d/%d", &data_validade.tm_mday, &data_validade.tm_mon, &data_validade.tm_year);
+    data_validade.tm_year -= 1900;
+    data_validade.tm_mon--;
+
+    return difftime(mktime(&data_validade), mktime(&data_atual)) >= 0;
+}
+
+// Módulo de Cadastro de Produtos
+void cadastrar_produto() {
+    if (!verificar_permissao("estoque")) {
+        printf("Acesso negado ao modulo de cadastro de produtos.\n");
+        return;
+    }
+    Produto p;
+    p.id = contador_produtos + 1;
+    printf("Descricao: ");
+    scanf(" %[^\n]s", p.descricao);
+    printf("Quantidade: ");
+    scanf("%d", &p.quantidade);
+    printf("Preco: ");
+    scanf("%f", &p.preco);
+    printf("Data de validade (dd/mm/yyyy): ");
+    scanf(" %[^\n]s", p.validade);
+
+    int opcao_unidade;
+    printf("Escolha a unidade de medida:\n");
+    printf("1. kg\n");
+    printf("2. unidade\n");
+    printf("Opcao: ");
+    scanf("%d", &opcao_unidade);
+
+    if (opcao_unidade == 1) {
+        strcpy(p.unidade_medida, "kg");
+    } else if (opcao_unidade == 2) {
+        strcpy(p.unidade_medida, "unidade");
+    } else {
+        printf("Opcao invalida. Produto nao cadastrado.\n");
+        return;
+    }
+
+    estoque[contador_produtos++] = p;
+    printf("Produto cadastrado com sucesso!\n");
+}
+
+// Módulo de Estoque
+void listar_produtos() {
+    printf("ID | Descricao           | Quantidade | Preco   | Validade   | Unidade\n");
+    printf("---------------------------------------------------------------------\n");
+    for (int i = 0; i < contador_produtos; i++) {
+        printf("%d | %-20s | %-9d | %-7.2f | %s | %s\n",
+               estoque[i].id, estoque[i].descricao, estoque[i].quantidade,
+               estoque[i].preco, estoque[i].validade, estoque[i].unidade_medida);
+    }
+}
+
+void verificar_estoque() {
+    listar_produtos();
+}
+
+void reabastecer_estoque() {
+    if (!verificar_permissao("estoque")) {
+        printf("Acesso negado ao modulo de reabastecimento.\n");
+        return;
+    }
+    int id, quantidade;
+    printf("ID do produto a reabastecer: ");
+    scanf("%d", &id);
+    printf("Quantidade a adicionar: ");
+    scanf("%d", &quantidade);
+
+    for (int i = 0; i < contador_produtos; i++) {
+        if (estoque[i].id == id) {
+            estoque[i].quantidade += quantidade;
+            printf("Produto reabastecido com sucesso!\n");
+            return;
+        }
+    }
+    printf("Produto nao encontrado.\n");
+}
+
+void excluir_produto_vencido() {
+    if (!verificar_permissao("estoque")) {
+        printf("Acesso negado ao modulo de exclusao de produtos.\n");
+        return;
+    }
+    int i = 0;
+    while (i < contador_produtos) {
+        if (!comparar_datas(estoque[i].validade)) {
+            for (int j = i; j < contador_produtos - 1; j++) {
+                estoque[j] = estoque[j + 1];
+            }
+            contador_produtos--;
+            printf("Produto vencido removido.\n");
+        } else {
+            i++;
+        }
+    }
+}
+
+void exibir_estoque_baixo() {
+    printf("Produtos com estoque baixo (menos de 5 unidades):\n");
+    for (int i = 0; i < contador_produtos; i++) {
+        if (estoque[i].quantidade < 5) {
+            printf("ID: %d | %s | Quantidade: %d | Unidade: %s\n",
+                   estoque[i].id, estoque[i].descricao, estoque[i].quantidade,
+                   estoque[i].unidade_medida);
+        }
+    }
+}
+
+// Módulo Financeiro
+void gerar_relatorio_financeiro() {
+    if (!verificar_permissao("financeiro")) {
+        printf("Acesso negado ao modulo financeiro.\n");
+        return;
+    }
+    printf("Gerando relatório financeiro...\n");
+    float total = 0;
+    for (int i = 0; i < contador_produtos; i++) {
+        total += estoque[i].preco * estoque[i].quantidade;
+    }
+    printf("Total em estoque (valor de venda): %.2f\n", total);
+    printf("Total de vendas realizadas: %.2f\n", total_vendas);
+}
+
+void relatorio_vendas() {
+    if (!verificar_permissao("financeiro")) {
+        printf("Acesso negado ao modulo de relatorio de vendas.\n");
+        return;
+    }
+    printf("Total de vendas: %d\n", vendas_realizadas);
+    printf("Valor total de vendas: %.2f\n", total_vendas);
+}
+
+// Módulo de Vendas
+void realizar_venda() {
+    if (!verificar_permissao("vendas")) {
+        printf("Acesso negado ao modulo de vendas.\n");
+        return;
+    }
+    int id, quantidade;
+    printf("ID do produto para venda: ");
+    scanf("%d", &id);
+    printf("Quantidade: ");
+    scanf("%d", &quantidade);
+
+    for (int i = 0; i < contador_produtos; i++) {
+        if (estoque[i].id == id && estoque[i].quantidade >= quantidade) {
+            estoque[i].quantidade -= quantidade;
+            float valor_venda = estoque[i].preco * quantidade;
+            total_vendas += valor_venda;
+            vendas_realizadas++;
+            printf("Venda realizada com sucesso!\n");
+            printf("Valor total: R$ %.2f\n", valor_venda);
+            return;
+        }
+    }
+    printf("Produto nao encontrado ou quantidade insuficiente em estoque.\n");
+}
+
+// Módulo de Gestão de Fornecedores
+void cadastrar_fornecedor() {
+    if (!verificar_permissao("estoque")) {
+        printf("Acesso negado ao modulo de cadastro de fornecedores.\n");
+        return;
+    }
+    Fornecedor f;
+    f.id = contador_fornecedores + 1;
+
+    printf("Nome do fornecedor: ");
+    scanf(" %[^\n]s", f.nome);
+    printf("Contato do fornecedor: ");
+    scanf(" %[^\n]s", f.contato);
+    printf("Produtos oferecidos (separados por virgula): ");
+    scanf(" %[^\n]s", f.produtos_oferecidos);
+    printf("Historico de compras: ");
+    scanf(" %[^\n]s", f.historico_compras);
+
+    fornecedores[contador_fornecedores++] = f;
+    printf("Fornecedor cadastrado com sucesso!\n");
+}
+
+void listar_fornecedores() {
+    printf("ID | Nome                | Contato              | Produtos Oferecidos\n");
+    printf("----------------------------------------------------------------------\n");
+    for (int i = 0; i < contador_fornecedores; i++) {
+        printf("%d | %-20s | %-20s | %s\n", fornecedores[i].id, fornecedores[i].nome, fornecedores[i].contato, fornecedores[i].produtos_oferecidos);
+    }
+}
+
+// Função para inicializar usuários de teste
+void inicializar_usuarios() {
+    strcpy(usuarios[0].nome, "Admin");
+    strcpy(usuarios[0].usuario, "admin");
+    strcpy(usuarios[0].senha, "admin123");
+    strcpy(usuarios[0].funcao, "adm");
+    contador_usuarios++;
+
+    strcpy(usuarios[1].nome, "Estoque");
+    strcpy(usuarios[1].usuario, "estoque");
+    strcpy(usuarios[1].senha, "estoque123");
+    strcpy(usuarios[1].funcao, "estoque");
+    contador_usuarios++;
+
+    strcpy(usuarios[2].nome, "Vendas");
+    strcpy(usuarios[2].usuario, "vendas");
+    strcpy(usuarios[2].senha, "vendas123");
+    strcpy(usuarios[2].funcao, "vendas");
+    contador_usuarios++;
+}
+
+// Menu principal
+void menu() {
+    int opcao;
+    do {
+        printf("\n--- Sistema ERP Hortifruti ---\n");
+        printf("1. Cadastrar Produto\n");
+        printf("2. Listar Produtos\n");
+        printf("3. Realizar Venda\n");
+        printf("4. Verificar Estoque\n");
+        printf("5. Reabastecer Estoque\n");
+        printf("6. Exibir Controle Financeiro\n");
+        printf("7. Relatorio de Vendas\n");
+        printf("8. Remover Produtos Vencidos\n");
+        printf("9. Exibir Estoque Baixo\n");
+        printf("10. Cadastrar Fornecedor\n");
+        printf("11. Listar Fornecedores\n");
+        printf("0. Sair\n");
+        printf("Escolha uma opcao: ");
+        scanf("%d", &opcao);
+
+        switch (opcao) {
+            case 1: cadastrar_produto(); break;
+            case 2: listar_produtos(); break;
+            case 3: realizar_venda(); break;
+            case 4: verificar_estoque(); break;
+            case 5: reabastecer_estoque(); break;
+            case 6: gerar_relatorio_financeiro(); break;
+            case 7: relatorio_vendas(); break;
+            case 8: excluir_produto_vencido(); break;
+            case 9: exibir_estoque_baixo(); break;
+            case 10: cadastrar_fornecedor(); break;
+            case 11: listar_fornecedores(); break;
+            case 0: printf("Saindo do sistema...\n"); break;
+            default: printf("Opcao invalida.\n");
+        }
+    } while (opcao != 0);
+}
+
+// Função principal
+int main() {
+    inicializar_usuarios();
+    if (login()) {
+        menu();
+    }
+
+    return 0;
+}
